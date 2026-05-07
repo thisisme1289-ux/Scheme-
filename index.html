@@ -1,0 +1,1742 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <!--
+  ╔══════════════════════════════════════════════════════════════════════════╗
+  ║        🇮🇳 INDIAN GOVERNMENT SCHEMES SCRAPER  v1.0                      ║
+  ║           Browser-Only · No Backend · No Installation                   ║
+  ╠══════════════════════════════════════════════════════════════════════════╣
+  ║                                                                          ║
+  ║  ► QUICK SETUP (2 steps):                                                ║
+  ║    1. Open this file in Chrome or Edge                                   ║
+  ║    2. Paste API keys → Click "Start Scraping"                            ║
+  ║                                                                          ║
+  ║  ► REQUIRED API KEY:                                                     ║
+  ║    • Firecrawl  →  https://app.firecrawl.dev                             ║
+  ║      Free tier: 500 credits/month (each page = 1 credit)                ║
+  ║      Hobby plan: $16/mo for 3,000 credits                               ║
+  ║                                                                          ║
+  ║  ► OPTIONAL API KEY (enables AI extraction):                             ║
+  ║    • OpenRouter  →  https://openrouter.ai                                ║
+  ║      Model used: deepseek/deepseek-chat (~$0.0001 per scheme)           ║
+  ║      Without this key, regex-based extraction is used (still works)     ║
+  ║                                                                          ║
+  ║  ► HOW IT WORKS:                                                         ║
+  ║    Phase 1 — Fetches from myscheme.gov.in public API (10,000+ schemes)  ║
+  ║    Phase 2 — Crawls state government portals via Firecrawl               ║
+  ║    Phase 3 — AI cleans/structures data (if OpenRouter key provided)     ║
+  ║    Phase 4 — Auto-deduplicates and saves to browser IndexedDB           ║
+  ║                                                                          ║
+  ║  ► EXPORT: JSON / CSV / Excel (all in-browser, no upload needed)        ║
+  ║                                                                          ║
+  ║  ► DATA PERSISTS across sessions (stored in browser's IndexedDB)        ║
+  ║                                                                          ║
+  ║  ► ESTIMATED TIME:                                                       ║
+  ║    API-only mode: ~5-10 min for 10,000 schemes                          ║
+  ║    Full crawl (API + Firecrawl): 30-90 min depending on plan            ║
+  ╚══════════════════════════════════════════════════════════════════════════╝
+  -->
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>🇮🇳 Indian Gov Schemes Scraper</title>
+
+  <!-- SheetJS for Excel export -->
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+
+  <style>
+    /* ─── Reset & Base ─────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --saffron:  #FF9933;
+      --saffron2: #e8831a;
+      --navy:     #000080;
+      --green:    #138808;
+      --bg:       #f3f4f8;
+      --card:     #ffffff;
+      --border:   #e4e7ef;
+      --text:     #1a1d2e;
+      --muted:    #6b7280;
+      --success:  #16a34a;
+      --warn:     #d97706;
+      --danger:   #dc2626;
+      --info:     #2563eb;
+      --radius:   10px;
+      --shadow:   0 1px 4px rgba(0,0,0,.08), 0 0 0 1px rgba(0,0,0,.04);
+    }
+    body {
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      font-size: 14px;
+    }
+
+    /* ─── Header ───────────────────────────────────────────────── */
+    .header {
+      background: var(--navy);
+      background: linear-gradient(135deg, #000060 0%, #000090 50%, #0000b0 100%);
+      padding: 16px 24px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      border-bottom: 3px solid var(--saffron);
+    }
+    .header-flag { font-size: 32px; line-height: 1; flex-shrink: 0; }
+    .header-text h1 { font-size: 20px; font-weight: 700; color: #fff; letter-spacing: -.3px; }
+    .header-text p  { font-size: 12px; color: rgba(255,255,255,.65); margin-top: 2px; }
+    .header-status {
+      margin-left: auto;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: rgba(255,255,255,.08);
+      border: 1px solid rgba(255,255,255,.15);
+      padding: 6px 12px;
+      border-radius: 20px;
+    }
+    .status-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      transition: background .3s;
+    }
+    .dot-idle    { background: #6b7280; }
+    .dot-running { background: var(--success); animation: blink 1.2s ease-in-out infinite; }
+    .dot-paused  { background: var(--warn); }
+    .dot-done    { background: var(--success); }
+    .dot-error   { background: var(--danger); }
+    @keyframes blink { 0%,100% { opacity:1; } 50% { opacity:.35; } }
+    .status-label { font-size: 12px; color: rgba(255,255,255,.85); font-weight: 500; }
+
+    /* ─── Layout ───────────────────────────────────────────────── */
+    .container { max-width: 1440px; margin: 0 auto; padding: 20px; }
+
+    /* ─── Cards ────────────────────────────────────────────────── */
+    .card {
+      background: var(--card);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 20px;
+      margin-bottom: 16px;
+    }
+    .card-title {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: .6px;
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .card-title span { font-size: 16px; }
+
+    /* ─── Stats Grid ───────────────────────────────────────────── */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+    .stat-card {
+      background: var(--card);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 16px 20px;
+      border-left: 4px solid;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .stat-card.total   { border-color: var(--green); }
+    .stat-card.pages   { border-color: var(--info); }
+    .stat-card.queue   { border-color: var(--warn); }
+    .stat-card.failed  { border-color: var(--danger); }
+    .stat-num  { font-size: 28px; font-weight: 800; line-height: 1; }
+    .stat-card.total  .stat-num { color: var(--green); }
+    .stat-card.pages  .stat-num { color: var(--info); }
+    .stat-card.queue  .stat-num { color: var(--warn); }
+    .stat-card.failed .stat-num { color: var(--danger); }
+    .stat-label { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; }
+    .stat-sub   { font-size: 10px; color: var(--muted); margin-top: 2px; }
+
+    /* ─── Forms ────────────────────────────────────────────────── */
+    .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .form-group { display: flex; flex-direction: column; gap: 5px; }
+    .form-label {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: .5px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .form-label a { color: var(--saffron); text-transform: none; font-weight: 400; font-size: 11px; }
+    .form-input, .form-select {
+      padding: 8px 12px;
+      border: 1.5px solid var(--border);
+      border-radius: 7px;
+      font-size: 13px;
+      font-family: inherit;
+      color: var(--text);
+      background: #fafafa;
+      transition: border-color .15s, box-shadow .15s;
+      outline: none;
+      width: 100%;
+    }
+    .form-input:focus, .form-select:focus {
+      border-color: var(--saffron);
+      box-shadow: 0 0 0 3px rgba(255,153,51,.15);
+      background: #fff;
+    }
+
+    /* Custom URLs textarea */
+    .form-textarea {
+      padding: 8px 12px;
+      border: 1.5px solid var(--border);
+      border-radius: 7px;
+      font-size: 12px;
+      font-family: monospace;
+      color: var(--text);
+      background: #fafafa;
+      resize: vertical;
+      min-height: 80px;
+      width: 100%;
+      outline: none;
+      transition: border-color .15s;
+    }
+    .form-textarea:focus { border-color: var(--saffron); }
+
+    /* ─── Buttons ──────────────────────────────────────────────── */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 16px;
+      border: none;
+      border-radius: 7px;
+      font-size: 13px;
+      font-weight: 600;
+      font-family: inherit;
+      cursor: pointer;
+      transition: opacity .15s, transform .1s;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    .btn:hover  { opacity: .88; }
+    .btn:active { transform: scale(.97); }
+    .btn:disabled { opacity: .35; cursor: not-allowed; pointer-events: none; }
+    .btn-sm { padding: 6px 12px; font-size: 12px; }
+    .btn-primary  { background: var(--saffron);  color: #fff; }
+    .btn-navy     { background: var(--navy);      color: #fff; }
+    .btn-green    { background: var(--green);     color: #fff; }
+    .btn-red      { background: var(--danger);    color: #fff; }
+    .btn-gray     { background: #e5e7eb;          color: var(--text); }
+    .btn-outline  { background: transparent; border: 1.5px solid var(--border); color: var(--muted); }
+
+    /* ─── Control Bar ──────────────────────────────────────────── */
+    .control-bar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+      margin-top: 16px;
+      padding-top: 16px;
+      border-top: 1px solid var(--border);
+    }
+    .control-bar .spacer { flex: 1; }
+
+    /* ─── Progress ─────────────────────────────────────────────── */
+    .progress-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 12px;
+      color: var(--muted);
+      margin-bottom: 6px;
+    }
+    .progress-track {
+      background: #f0f0f0;
+      border-radius: 20px;
+      height: 7px;
+      overflow: hidden;
+    }
+    .progress-fill {
+      height: 100%;
+      border-radius: 20px;
+      background: linear-gradient(90deg, var(--saffron) 0%, var(--green) 100%);
+      transition: width .4s ease;
+    }
+    .phase-label {
+      display: inline-block;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: 10px;
+      background: rgba(255,153,51,.12);
+      color: var(--saffron2);
+      margin-bottom: 8px;
+    }
+
+    /* ─── Log Terminal ─────────────────────────────────────────── */
+    .log-terminal {
+      background: #0d1117;
+      border-radius: 8px;
+      padding: 14px;
+      height: 220px;
+      overflow-y: auto;
+      font-family: 'Courier New', Consolas, monospace;
+      font-size: 12px;
+      margin-top: 12px;
+      scroll-behavior: smooth;
+    }
+    .log-terminal::-webkit-scrollbar { width: 4px; }
+    .log-terminal::-webkit-scrollbar-thumb { background: #30363d; border-radius: 4px; }
+    .log-entry { padding: 2px 0; line-height: 1.6; }
+    .log-t  { color: #484f58; margin-right: 8px; font-size: 11px; }
+    .log-info    .log-icon { color: #58a6ff; }
+    .log-success .log-icon { color: #3fb950; }
+    .log-warn    .log-icon { color: #d29922; }
+    .log-error   .log-icon { color: #f85149; }
+    .log-info    .log-msg  { color: #c9d1d9; }
+    .log-success .log-msg  { color: #3fb950; }
+    .log-warn    .log-msg  { color: #d29922; }
+    .log-error   .log-msg  { color: #f85149; }
+
+    /* ─── Filter Bar ───────────────────────────────────────────── */
+    .filter-bar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+      margin-bottom: 14px;
+    }
+    .filter-bar input  { flex: 1; min-width: 200px; }
+    .filter-bar select { min-width: 140px; }
+
+    /* ─── Results Table ────────────────────────────────────────── */
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; }
+    thead th {
+      background: #f8f9fc;
+      padding: 10px 12px;
+      text-align: left;
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: .5px;
+      border-bottom: 2px solid var(--border);
+      white-space: nowrap;
+      position: sticky;
+      top: 0;
+    }
+    tbody td {
+      padding: 10px 12px;
+      border-bottom: 1px solid #f0f2f8;
+      vertical-align: top;
+      font-size: 13px;
+    }
+    tbody tr:hover td { background: #fafbff; }
+
+    /* ─── Badges ───────────────────────────────────────────────── */
+    .badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 20px;
+      font-size: 11px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+    .badge-central { background: #fff3e0; color: #e65100; border: 1px solid #ffcc80; }
+    .badge-state   { background: #e8f5e9; color: #2e7d32; border: 1px solid #a5d6a7; }
+    .badge-unknown { background: #f3f4f6; color: #6b7280; border: 1px solid #e5e7eb; }
+
+    /* ─── Pagination ───────────────────────────────────────────── */
+    .pagination {
+      display: flex;
+      gap: 4px;
+      justify-content: center;
+      padding: 14px 0 4px;
+      flex-wrap: wrap;
+    }
+    .pg-btn {
+      min-width: 34px;
+      height: 34px;
+      border: 1.5px solid var(--border);
+      background: var(--card);
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      color: var(--muted);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all .15s;
+      font-family: inherit;
+    }
+    .pg-btn:hover  { border-color: var(--saffron); color: var(--saffron); }
+    .pg-btn.active { background: var(--saffron); border-color: var(--saffron); color: #fff; }
+    .pg-btn:disabled { opacity:.35; cursor:not-allowed; }
+
+    /* ─── Empty State ──────────────────────────────────────────── */
+    .empty-state {
+      text-align: center;
+      padding: 48px 24px;
+      color: var(--muted);
+    }
+    .empty-state .icon { font-size: 44px; margin-bottom: 12px; }
+    .empty-state p { font-size: 14px; }
+
+    /* ─── Misc ─────────────────────────────────────────────────── */
+    .section-divider { border: none; border-top: 1px solid var(--border); margin: 14px 0; }
+    .text-ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .link-out { color: var(--saffron); text-decoration: none; font-size: 12px; font-weight: 600; }
+    .link-out:hover { text-decoration: underline; }
+    .mono { font-family: monospace; font-size: 12px; }
+    .export-bar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 14px; }
+    .result-count { margin-left: auto; font-size: 12px; color: var(--muted); font-weight: 500; }
+
+    /* ─── Responsive ───────────────────────────────────────────── */
+    @media (max-width: 768px) {
+      .stats-grid { grid-template-columns: repeat(2, 1fr); }
+      .form-grid  { grid-template-columns: 1fr; }
+      .header-status { display: none; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ═══════════════════════ HEADER ═══════════════════════════════ -->
+<div class="header">
+  <div class="header-flag">🇮🇳</div>
+  <div class="header-text">
+    <h1>Indian Government Schemes Scraper</h1>
+    <p>Automated collection from Central &amp; State government portals &nbsp;·&nbsp; Powered by Firecrawl + DeepSeek AI</p>
+  </div>
+  <div class="header-status">
+    <span class="status-dot dot-idle" id="statusDot"></span>
+    <span class="status-label" id="statusLabel">Idle</span>
+  </div>
+</div>
+
+<div class="container">
+
+  <!-- ═══════════ STATS GRID ═══════════ -->
+  <div class="stats-grid">
+    <div class="stat-card total">
+      <div class="stat-num" id="statTotal">0</div>
+      <div class="stat-label">Schemes Collected</div>
+      <div class="stat-sub" id="statSources">from 0 sources</div>
+    </div>
+    <div class="stat-card pages">
+      <div class="stat-num" id="statPages">0</div>
+      <div class="stat-label">Pages Processed</div>
+      <div class="stat-sub" id="statCrawls">0 crawl jobs</div>
+    </div>
+    <div class="stat-card queue">
+      <div class="stat-num" id="statQueue">0</div>
+      <div class="stat-label">In Queue</div>
+      <div class="stat-sub">pending sites</div>
+    </div>
+    <div class="stat-card failed">
+      <div class="stat-num" id="statFailed">0</div>
+      <div class="stat-label">Failed Pages</div>
+      <div class="stat-sub" id="statRetried">0 retried</div>
+    </div>
+  </div>
+
+  <!-- ═══════════ CONFIG CARD ═══════════ -->
+  <div class="card">
+    <div class="card-title"><span>⚙️</span> Configuration</div>
+
+    <div class="form-grid">
+      <!-- Firecrawl Key -->
+      <div class="form-group">
+        <label class="form-label">
+          🔥 Firecrawl API Key
+          <span style="font-weight:400;text-transform:none;font-size:11px;color:var(--danger)">&nbsp;Required for crawl</span>
+          <a href="https://app.firecrawl.dev" target="_blank">Get free key →</a>
+        </label>
+        <input type="password" class="form-input mono"
+          id="firecrawlKey"
+          placeholder="fc-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+          autocomplete="off" />
+      </div>
+      <!-- OpenRouter Key -->
+      <div class="form-group">
+        <label class="form-label">
+          🤖 OpenRouter API Key
+          <span style="font-weight:400;text-transform:none;font-size:11px;color:var(--muted)">&nbsp;Optional — AI extraction</span>
+          <a href="https://openrouter.ai" target="_blank">Get key →</a>
+        </label>
+        <input type="password" class="form-input mono"
+          id="openrouterKey"
+          placeholder="sk-or-v1-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+          autocomplete="off" />
+      </div>
+      <!-- Crawl Mode -->
+      <div class="form-group">
+        <label class="form-label">📡 Crawl Mode</label>
+        <select class="form-select" id="crawlMode">
+          <option value="api_first" selected>API First — myscheme.gov.in API + Firecrawl (Best)</option>
+          <option value="api_only">API Only — myscheme.gov.in (10,000+ schemes, fast, no Firecrawl)</option>
+          <option value="firecrawl_only">Firecrawl Only — All government sites (custom crawl)</option>
+        </select>
+      </div>
+      <!-- Max Pages -->
+      <div class="form-group">
+        <label class="form-label">📄 Max Pages per Site (Firecrawl)</label>
+        <select class="form-select" id="maxPages">
+          <option value="30">30 pages — Quick test</option>
+          <option value="100">100 pages — Standard</option>
+          <option value="300" selected>300 pages — Deep (recommended)</option>
+          <option value="500">500 pages — Full crawl</option>
+          <option value="1000">1000 pages — Exhaustive</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- Custom seed URLs -->
+    <div class="form-group" style="margin-top:12px;">
+      <label class="form-label">🌐 Custom Seed URLs (one per line — optional, adds to built-in list)</label>
+      <textarea class="form-textarea" id="customUrls"
+        placeholder="https://example.state.gov.in/schemes&#10;https://welfare.somestate.gov.in">
+      </textarea>
+    </div>
+
+    <!-- Control bar -->
+    <div class="control-bar">
+      <button class="btn btn-primary" id="btnStart" onclick="startScraping()">
+        ▶&nbsp; Start Scraping
+      </button>
+      <button class="btn btn-gray" id="btnPause" onclick="togglePause()" disabled>
+        ⏸&nbsp; Pause
+      </button>
+      <button class="btn btn-red btn-sm" id="btnStop" onclick="stopScraping()" disabled>
+        ⏹&nbsp; Stop
+      </button>
+      <button class="btn btn-outline btn-sm" id="btnRetry" onclick="retryFailed()" disabled>
+        🔄&nbsp; Retry Failed
+      </button>
+      <div class="spacer"></div>
+      <button class="btn btn-outline btn-sm" onclick="clearAllData()">
+        🗑️&nbsp; Clear All Data
+      </button>
+    </div>
+  </div>
+
+  <!-- ═══════════ PROGRESS CARD ═══════════ -->
+  <div class="card">
+    <div class="card-title"><span>📊</span> Progress</div>
+    <div id="phaseLabel" class="phase-label">Not started</div>
+    <div class="progress-header">
+      <span id="progressDetail">Configure API keys above and click Start Scraping</span>
+      <span id="progressPct" style="font-weight:700;color:var(--saffron)">0%</span>
+    </div>
+    <div class="progress-track">
+      <div class="progress-fill" id="progressBar" style="width:0%"></div>
+    </div>
+
+    <!-- Log terminal -->
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:14px;margin-bottom:6px;">
+      <span style="font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;">
+        🖥️ Live Log
+      </span>
+      <button class="btn btn-outline btn-sm" onclick="clearLog()">Clear log</button>
+    </div>
+    <div class="log-terminal" id="logTerminal"></div>
+  </div>
+
+  <!-- ═══════════ RESULTS CARD ═══════════ -->
+  <div class="card">
+    <div class="card-title"><span>📋</span> Collected Schemes</div>
+
+    <!-- Export bar -->
+    <div class="export-bar">
+      <button class="btn btn-green btn-sm" onclick="exportJSON()">⬇️ JSON</button>
+      <button class="btn btn-green btn-sm" onclick="exportCSV()">⬇️ CSV</button>
+      <button class="btn btn-green btn-sm" onclick="exportExcel()">⬇️ Excel</button>
+      <div class="result-count" id="resultCount">0 schemes</div>
+    </div>
+
+    <!-- Filters -->
+    <div class="filter-bar">
+      <input class="form-input" type="text" id="searchInput"
+        placeholder="🔍 Search by name, ministry, benefits…"
+        oninput="applyFilters()" />
+      <select class="form-select" id="filterCategory" onchange="applyFilters()">
+        <option value="">All Categories</option>
+        <option value="Central">Central Government</option>
+        <option value="State">State Government</option>
+      </select>
+      <select class="form-select" id="filterState" onchange="applyFilters()">
+        <option value="">All States/UTs</option>
+      </select>
+    </div>
+
+    <!-- Table -->
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th style="width:40px">#</th>
+            <th>Scheme Name</th>
+            <th>Category</th>
+            <th>State / UT</th>
+            <th>Ministry / Department</th>
+            <th>Key Benefits</th>
+            <th style="width:70px">Link</th>
+          </tr>
+        </thead>
+        <tbody id="schemesBody">
+          <tr>
+            <td colspan="7">
+              <div class="empty-state">
+                <div class="icon">🏛️</div>
+                <p>No schemes collected yet.<br>Configure your API keys and click "Start Scraping".</p>
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="pagination" id="pagination"></div>
+  </div>
+
+</div><!-- /container -->
+
+
+<!-- ═══════════════════════════════════════════════════════════════
+     JAVASCRIPT
+═══════════════════════════════════════════════════════════════ -->
+<script>
+'use strict';
+
+/* ──────────────────────────────────────────────────────────────────
+   1. CONSTANTS & SEED DATA
+────────────────────────────────────────────────────────────────── */
+
+const APP_VER   = '1.0';
+const DB_NAME   = 'IndianGovSchemesDB';
+const DB_VER    = 2;
+const STORE     = 'schemes';
+const LS_FC_KEY = 'igss_fc_key';
+const LS_OR_KEY = 'igss_or_key';
+
+/**
+ * Built-in seed URLs for Firecrawl crawling.
+ * category: 'Central' | 'State'
+ * priority: 1 (high) → 3 (low)
+ */
+const SEED_URLS = [
+  // ── Central ──────────────────────────────────────────────────
+  { url: 'https://myscheme.gov.in/schemes',                   label: 'MyScheme.gov.in',      category: 'Central', priority: 1 },
+  { url: 'https://pmmodiyojana.in',                           label: 'PM Modi Yojana',        category: 'Central', priority: 1 },
+  { url: 'https://india.gov.in/spotlight/schemes-government-india', label: 'India.gov.in',   category: 'Central', priority: 2 },
+  { url: 'https://dbtbharat.gov.in',                          label: 'DBT Bharat',            category: 'Central', priority: 2 },
+  { url: 'https://socialjustice.gov.in/schemes',              label: 'Social Justice Min.',   category: 'Central', priority: 2 },
+  { url: 'https://labour.gov.in/schemes',                     label: 'Labour Ministry',       category: 'Central', priority: 2 },
+  { url: 'https://msme.gov.in/schemes',                       label: 'MSME Ministry',         category: 'Central', priority: 2 },
+  { url: 'https://agricoop.nic.in/en/scheme',                 label: 'Agriculture Ministry',  category: 'Central', priority: 2 },
+  // ── States ───────────────────────────────────────────────────
+  { url: 'https://yojana.gujarat.gov.in',                     label: 'Gujarat Schemes',       category: 'State',   priority: 2 },
+  { url: 'https://aaplesarkar.mahaonline.gov.in',             label: 'Maharashtra Schemes',   category: 'State',   priority: 2 },
+  { url: 'https://sspy-up.gov.in',                            label: 'UP Social Security',    category: 'State',   priority: 2 },
+  { url: 'https://jankalyan.rajasthan.gov.in',                label: 'Rajasthan Schemes',     category: 'State',   priority: 2 },
+  { url: 'https://dysss.karnataka.gov.in',                    label: 'Karnataka Schemes',     category: 'State',   priority: 2 },
+  { url: 'https://welfareschemes.tn.gov.in',                  label: 'Tamil Nadu Schemes',    category: 'State',   priority: 2 },
+  { url: 'https://wbxpress.com/category/schemes',             label: 'West Bengal Schemes',   category: 'State',   priority: 3 },
+  { url: 'https://e-services.kerala.gov.in',                  label: 'Kerala Services',       category: 'State',   priority: 3 },
+];
+
+/* ──────────────────────────────────────────────────────────────────
+   2. APPLICATION STATE
+────────────────────────────────────────────────────────────────── */
+
+const S = {
+  db:        null,            // IndexedDB instance
+  schemes:   [],              // All loaded schemes (in memory)
+  filtered:  [],              // Currently filtered view
+  failed:    [],              // Failed URLs { url, error, retries }
+  running:   false,
+  paused:    false,
+  page:      1,
+  pageSize:  50,
+  stats: {
+    total:      0,
+    pages:      0,
+    crawlJobs:  0,
+    failed:     0,
+    retried:    0,
+    sources:    new Set(),
+  },
+};
+
+/* ──────────────────────────────────────────────────────────────────
+   3. INDEXEDDB LAYER
+────────────────────────────────────────────────────────────────── */
+
+/** Open (or upgrade) the IndexedDB database. */
+function initDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, DB_VER);
+
+    req.onerror = () => reject(req.error);
+    req.onsuccess = () => { S.db = req.result; resolve(req.result); };
+
+    req.onupgradeneeded = (e) => {
+      const db = e.target.result;
+      if (!db.objectStoreNames.contains(STORE)) {
+        const store = db.createObjectStore(STORE, { keyPath: 'schemeKey' });
+        store.createIndex('category', 'category', { unique: false });
+        store.createIndex('state',    'state',    { unique: false });
+        store.createIndex('name',     'name',     { unique: false });
+      }
+    };
+  });
+}
+
+/**
+ * Upsert schemes into IndexedDB.
+ * Uses schemeKey as the primary key — duplicate keys are silently skipped.
+ * Returns { saved, dupes }.
+ */
+async function dbSave(schemes) {
+  if (!S.db || !schemes.length) return { saved: 0, dupes: 0 };
+  let saved = 0, dupes = 0;
+
+  const tx = S.db.transaction(STORE, 'readwrite');
+  const store = tx.objectStore(STORE);
+
+  await Promise.all(schemes.map(s =>
+    new Promise(res => {
+      const req = store.put(s);               // put = insert or replace
+      req.onsuccess = () => { saved++; res(); };
+      req.onerror   = () => { dupes++; res(); }; // unique constraint violation
+    })
+  ));
+
+  return { saved, dupes };
+}
+
+/** Load all schemes from IndexedDB. */
+function dbLoadAll() {
+  return new Promise((resolve, reject) => {
+    if (!S.db) return resolve([]);
+    const req = S.db.transaction(STORE, 'readonly')
+                    .objectStore(STORE).getAll();
+    req.onsuccess = () => resolve(req.result || []);
+    req.onerror   = () => reject(req.error);
+  });
+}
+
+/** Clear all schemes from IndexedDB. */
+function dbClear() {
+  return new Promise((resolve, reject) => {
+    if (!S.db) return resolve();
+    const req = S.db.transaction(STORE, 'readwrite')
+                    .objectStore(STORE).clear();
+    req.onsuccess = () => resolve();
+    req.onerror   = () => reject(req.error);
+  });
+}
+
+/* ──────────────────────────────────────────────────────────────────
+   4. MYSCHEME.GOV.IN DIRECT API
+   The official national scheme aggregator — no auth required.
+   Endpoint backed by Elasticsearch, returns structured scheme data.
+────────────────────────────────────────────────────────────────── */
+
+/** Fetch one page of results from the myscheme.gov.in API. */
+async function mySchemeFetch(from = 0, size = 100) {
+  const params = new URLSearchParams({
+    lang: 'en', q: '', keyword: '',
+    schemeCategory: '', state: '',
+    from: String(from), size: String(size),
+  });
+  const url = `https://api.myscheme.gov.in/search/v4/schemes?${params}`;
+  const res = await fetch(url, {
+    headers: {
+      'Accept': 'application/json',
+      'Origin': 'https://myscheme.gov.in',
+      'Referer': 'https://myscheme.gov.in/',
+    },
+  });
+  if (!res.ok) throw new Error(`myscheme API ${res.status}`);
+  return res.json();
+}
+
+/** Crawl the entire myscheme.gov.in API in batches of 100. */
+async function crawlMySchemeAPI() {
+  log('📡 Connecting to myscheme.gov.in API…', 'info');
+  setPhase('Phase 1 — MyScheme.gov.in API');
+
+  let from = 0, totalFetched = 0;
+  const size = 100;
+  let apiTotal = 0;
+
+  while (S.running) {
+    if (S.paused) { await sleep(800); continue; }
+
+    try {
+      const json = await mySchemeFetch(from, size);
+
+      // Support multiple response shapes
+      const hits     = json?.data?.hits?.hits || json?.hits?.hits || json?.schemes || [];
+      const total    = json?.data?.hits?.total?.value
+                    || json?.total?.value
+                    || json?.total
+                    || 0;
+
+      if (hits.length === 0) break;
+      if (apiTotal === 0) apiTotal = total;
+
+      const schemes = hits.map(h => normalizeMyScheme(h._source || h))
+                          .filter(Boolean);
+
+      const { saved } = await dbSave(schemes);
+      S.schemes.push(...schemes);
+      totalFetched += hits.length;
+      S.stats.total   = S.schemes.length;
+      S.stats.pages  += 1;
+      S.stats.sources.add('myscheme.gov.in');
+
+      updateStats();
+      updateProgress(from + hits.length, Math.min(apiTotal, 10000),
+                     `Fetched ${fmtN(totalFetched)} / ${fmtN(apiTotal)} from API`);
+
+      log(`✅ API batch: ${fmtN(from)}–${fmtN(from + hits.length)} | saved ${saved} new`, 'success');
+
+      from += size;
+      if (from >= apiTotal || from >= 10000) break;  // 10k cap for safety
+
+      renderSchemes();          // live table update
+      await sleep(400);         // polite rate-limit
+
+    } catch (err) {
+      log(`⚠️ myscheme API error: ${err.message}`, 'warn');
+      log('   Falling back to Firecrawl for myscheme.gov.in…', 'info');
+      break;
+    }
+  }
+
+  log(`📦 MyScheme API done: ${fmtN(totalFetched)} schemes`, 'success');
+}
+
+/** Map a raw myscheme.gov.in API record to our normalised schema. */
+function normalizeMyScheme(src) {
+  if (!src) return null;
+
+  const name = (src.schemeName || src.name || src.title || '').trim();
+  if (!name) return null;
+
+  const ministry = src.nodalMinistryName || src.ministry || src.department || '';
+  const stateName = src.stateName || '';
+  const category  = stateName && stateName !== 'All India' ? 'State' : 'Central';
+
+  return {
+    schemeKey:          mkKey(name + ministry),
+    name,
+    description:        src.briefDescription   || src.description || '',
+    benefits:           flatArr(src.benefits)   || src.benefitTypes || '',
+    eligibility:        flatArr(src.eligibility) || src.eligibilityCriteria || '',
+    documents:          flatArr(src.documents)   || src.requiredDocuments || '',
+    applicationProcess: src.applicationProcess  || src.howToApply || '',
+    officialLink:       src.schemeUrl || src.url
+                          || `https://myscheme.gov.in/schemes/${src.schemeId || src.id || ''}`,
+    category,
+    state:              stateName || 'Central',
+    ministry:           ministry,
+    department:         src.implementingAgency  || ministry,
+    lastUpdated:        src.lastUpdatedDate      || '',
+    tags:               flatArr(src.tags || src.keywords),
+    schemeId:           src.schemeId || src.id || '',
+    source:             'myscheme.gov.in',
+    scrapedAt:          now(),
+  };
+}
+
+/* ──────────────────────────────────────────────────────────────────
+   5. FIRECRAWL API
+────────────────────────────────────────────────────────────────── */
+
+function fcKey()  { return document.getElementById('firecrawlKey').value.trim(); }
+function orKey()  { return document.getElementById('openrouterKey').value.trim(); }
+function maxPg()  { return parseInt(document.getElementById('maxPages').value) || 300; }
+
+/** Scrape a single URL with Firecrawl. */
+async function fcScrape(url) {
+  const res = await fetch('https://api.firecrawl.dev/v1/scrape', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${fcKey()}`,
+      'Content-Type':  'application/json',
+    },
+    body: JSON.stringify({
+      url,
+      formats:         ['markdown', 'links'],
+      onlyMainContent: true,
+      waitFor:         1500,
+    }),
+  });
+  if (!res.ok) {
+    const txt = await res.text().catch(() => '');
+    throw new Error(`Firecrawl scrape ${res.status}: ${txt.substring(0, 120)}`);
+  }
+  const d = await res.json();
+  return d.data || d;
+}
+
+/** Start a Firecrawl crawl job and return the job ID. */
+async function fcStartCrawl(url, limit) {
+  const res = await fetch('https://api.firecrawl.dev/v1/crawl', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${fcKey()}`,
+      'Content-Type':  'application/json',
+    },
+    body: JSON.stringify({
+      url,
+      limit,
+      scrapeOptions: {
+        formats: ['markdown', 'links'],
+        onlyMainContent: true,
+      },
+      allowBackwardLinks: false,
+      allowExternalLinks: false,
+    }),
+  });
+  if (!res.ok) {
+    const txt = await res.text().catch(() => '');
+    throw new Error(`Firecrawl crawl ${res.status}: ${txt.substring(0, 120)}`);
+  }
+  const d = await res.json();
+  if (!d.id) throw new Error('No crawl ID returned from Firecrawl');
+  return d.id;
+}
+
+/** Poll a Firecrawl crawl job until complete; calls onBatch for each batch. */
+async function fcPollCrawl(crawlId, onBatch) {
+  let done = false, attempts = 0;
+  const maxAttempts = 180;          // 15 min at 5-sec intervals
+
+  while (!done && S.running && attempts < maxAttempts) {
+    await sleep(5000);
+    attempts++;
+
+    try {
+      const res = await fetch(`https://api.firecrawl.dev/v1/crawl/${crawlId}`, {
+        headers: { 'Authorization': `Bearer ${fcKey()}` },
+      });
+      if (!res.ok) throw new Error(`Poll ${res.status}`);
+
+      const d = await res.json();
+      const { status, completed = 0, total = 0, data = [] } = d;
+
+      updateProgress(completed, total || 1,
+                     `Crawl ${crawlId.slice(-6)} — ${completed}/${total} pages (${status})`);
+
+      if (data.length) await onBatch(data);
+
+      if (status === 'completed' || status === 'failed' || status === 'cancelled') {
+        done = true;
+        if (status !== 'completed') log(`⚠️ Crawl ended with status: ${status}`, 'warn');
+      }
+    } catch (err) {
+      log(`⚠️ Poll error (attempt ${attempts}): ${err.message}`, 'warn');
+    }
+  }
+}
+
+/** High-level: start a crawl, poll it, extract & store schemes. */
+async function crawlSite(seedUrl, category) {
+  const limit = maxPg();
+  log(`🕷️ Crawling: ${seedUrl} (limit ${limit} pages)`, 'info');
+
+  try {
+    const crawlId = await fcStartCrawl(seedUrl, limit);
+    S.stats.crawlJobs++;
+    updateStats();
+    log(`   Job started: ${crawlId}`, 'info');
+
+    const seen = new Set();
+
+    await fcPollCrawl(crawlId, async (pages) => {
+      const batch = [];
+
+      for (const page of pages) {
+        const pageUrl = page.metadata?.sourceURL || seedUrl;
+        if (seen.has(pageUrl)) continue;
+        seen.add(pageUrl);
+
+        if (!page.markdown || page.markdown.length < 80) continue;
+
+        const extracted = await extractFromPage(
+          page.markdown,
+          pageUrl,
+          page.metadata?.title || '',
+          category
+        );
+
+        batch.push(...extracted);
+        S.stats.pages++;
+      }
+
+      if (batch.length) {
+        const { saved } = await dbSave(batch);
+        S.schemes.push(...batch);
+        S.stats.total = S.schemes.length;
+        S.stats.sources.add(seedUrl);
+        updateStats();
+        renderSchemes();
+        log(`   +${saved} new schemes from ${seedUrl}`, 'success');
+      }
+    });
+
+  } catch (err) {
+    log(`❌ Crawl error for ${seedUrl}: ${err.message}`, 'error');
+    S.failed.push({ url: seedUrl, error: err.message, retries: 0 });
+    S.stats.failed++;
+    updateStats();
+  }
+}
+
+/* ──────────────────────────────────────────────────────────────────
+   6. AI EXTRACTION (OpenRouter + DeepSeek)
+────────────────────────────────────────────────────────────────── */
+
+/** Use DeepSeek via OpenRouter to extract structured scheme data from markdown. */
+async function extractWithAI(markdown, url, title) {
+  const key = orKey();
+  if (!key) return null;
+
+  const prompt = `Extract all Indian government scheme information from this webpage.
+
+URL: ${url}
+Title: ${title}
+
+CONTENT (truncated):
+${markdown.substring(0, 3500)}
+
+Return a JSON array. Each element represents ONE scheme with exactly these keys:
+{
+  "name": "Full official scheme name",
+  "description": "2-3 sentence description",
+  "benefits": "Key benefits (financial amount, services, etc.)",
+  "eligibility": "Who qualifies — age, income, caste, occupation, etc.",
+  "documents": "Required documents list",
+  "applicationProcess": "How and where to apply",
+  "ministry": "Ministry or Department name",
+  "state": "State name, or 'Central' for central schemes",
+  "category": "Central" or "State",
+  "lastUpdated": "Date if visible, else empty string"
+}
+
+STRICT RULES:
+- Return ONLY a valid JSON array. No markdown, no prose, no backticks.
+- If the page is an index/list page (not a specific scheme), return [].
+- If multiple schemes appear, include all of them.
+- "category" MUST be exactly "Central" or "State".`;
+
+  try {
+    const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${key}`,
+        'Content-Type':  'application/json',
+        'HTTP-Referer':  location.href,
+        'X-Title':       'Indian Gov Schemes Scraper',
+      },
+      body: JSON.stringify({
+        model:       'deepseek/deepseek-chat',
+        messages:    [{ role: 'user', content: prompt }],
+        max_tokens:  2500,
+        temperature: 0.05,
+      }),
+    });
+    if (!res.ok) throw new Error(`OpenRouter ${res.status}`);
+
+    const d    = await res.json();
+    const text = d.choices?.[0]?.message?.content || '';
+
+    // Strip markdown fences if present
+    const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+    const arr     = JSON.parse(cleaned);
+    return Array.isArray(arr) ? arr : [];
+
+  } catch (err) {
+    log(`⚠️ AI extraction failed: ${err.message} — using regex fallback`, 'warn');
+    return null;
+  }
+}
+
+/* ──────────────────────────────────────────────────────────────────
+   7. REGEX / HEURISTIC FALLBACK EXTRACTION
+────────────────────────────────────────────────────────────────── */
+
+/**
+ * Best-effort extraction using regex patterns common in Indian gov pages.
+ * Returns [] if the page does not look like a scheme page.
+ */
+function extractWithRegex(markdown, url, title, category) {
+  // Keyword gate — skip clearly non-scheme pages
+  if (!/yojana|scheme|programme|mission|subsidy|benefit|welfare|rashtriya|pradhan\s*mantri/i
+      .test(markdown + title)) return [];
+
+  // Heading detection
+  const h1m = markdown.match(/^#\s+(.+)/m);
+  const h2m = markdown.match(/^##\s+(.+)/m);
+  const name = title || (h1m?.[1] || h2m?.[1] || '').trim();
+  if (!name || name.length < 6) return [];
+
+  // Skip pure list/search pages
+  if (/list of schemes|all schemes|search results|scheme finder|scheme portal/i.test(name)) return [];
+
+  const description        = pickSection(markdown, ['overview','about','introduction','description','objective','aim'])
+                            || markdown.split('\n').filter(l => l.trim().length > 60).slice(0, 3).join(' ').substring(0, 400);
+  const benefits           = pickSection(markdown, ['benefits','what you get','assistance','amount','financial assistance','features']);
+  const eligibility        = pickSection(markdown, ['eligibility','eligible','who can apply','criteria','beneficiaries']);
+  const documents          = pickSection(markdown, ['documents','required documents','documents required','papers','certificates']);
+  const applicationProcess = pickSection(markdown, ['how to apply','application process','apply online','apply','process','registration']);
+
+  const ministryM = markdown.match(/ministry\s+of\s+([a-z &/,]{4,60})/i)
+                 || markdown.match(/department\s+of\s+([a-z &/,]{4,60})/i);
+  const ministry = ministryM ? ministryM[0].trim() : '';
+
+  const stateFromUrl     = detectState(url);
+  const stateFromContent = detectState(markdown);
+  const state            = stateFromUrl || stateFromContent || (category === 'Central' ? 'Central' : 'Unknown');
+
+  return [{
+    schemeKey:          mkKey(name + ministry + url),
+    name:               name.substring(0, 200),
+    description:        strip(description).substring(0, 800),
+    benefits:           strip(benefits).substring(0, 500),
+    eligibility:        strip(eligibility).substring(0, 500),
+    documents:          strip(documents).substring(0, 500),
+    applicationProcess: strip(applicationProcess).substring(0, 500),
+    officialLink:       url,
+    category:           category || (state === 'Central' ? 'Central' : 'State'),
+    state,
+    ministry:           ministry.substring(0, 200),
+    department:         ministry.substring(0, 200),
+    lastUpdated:        '',
+    tags:               '',
+    source:             'firecrawl',
+    scrapedAt:          now(),
+  }];
+}
+
+/** Try AI first; fall back to regex if key absent or AI fails. */
+async function extractFromPage(markdown, url, title, category) {
+  if (orKey()) {
+    const aiResult = await extractWithAI(markdown, url, title);
+    if (aiResult && aiResult.length > 0) {
+      return aiResult.map(s => normalizeAIScheme(s, url, category));
+    }
+  }
+  return extractWithRegex(markdown, url, title, category);
+}
+
+/** Normalise an AI-returned scheme object to our storage schema. */
+function normalizeAIScheme(s, url, fallbackCategory) {
+  const name = (s.name || '').trim();
+  const min  = (s.ministry || '').trim();
+  return {
+    schemeKey:          mkKey(name + min + url),
+    name:               name.substring(0, 200),
+    description:        (s.description || '').substring(0, 800),
+    benefits:           (s.benefits    || '').substring(0, 500),
+    eligibility:        (s.eligibility || '').substring(0, 500),
+    documents:          (s.documents   || '').substring(0, 500),
+    applicationProcess: (s.applicationProcess || '').substring(0, 500),
+    officialLink:       url,
+    category:           s.category || fallbackCategory || 'Central',
+    state:              s.state    || detectState(url) || 'Central',
+    ministry:           min.substring(0, 200),
+    department:         (s.department || min).substring(0, 200),
+    lastUpdated:        s.lastUpdated || '',
+    tags:               '',
+    source:             'firecrawl+ai',
+    scrapedAt:          now(),
+  };
+}
+
+/* ──────────────────────────────────────────────────────────────────
+   8. RETRY LOGIC
+────────────────────────────────────────────────────────────────── */
+
+async function retryFailed() {
+  const toRetry = S.failed.filter(f => f.retries < 3);
+  if (!toRetry.length) { log('No retryable failed URLs', 'info'); return; }
+
+  log(`🔄 Retrying ${toRetry.length} failed URLs…`, 'info');
+  S.failed = S.failed.filter(f => f.retries >= 3);   // keep permanently failed
+  setButtons(true);
+
+  for (const item of toRetry) {
+    if (!S.running) break;
+    log(`   Retrying: ${item.url}`, 'info');
+    try {
+      const page    = await fcScrape(item.url);
+      const schemes = await extractFromPage(
+        page.markdown || '', item.url,
+        page.metadata?.title || '', 'Unknown'
+      );
+      if (schemes.length) {
+        await dbSave(schemes);
+        S.schemes.push(...schemes);
+        S.stats.retried++;
+        log(`   ✅ Retry success: +${schemes.length} schemes`, 'success');
+      }
+    } catch (err) {
+      item.retries++;
+      S.failed.push(item);
+      S.stats.failed++;
+      log(`   ❌ Retry failed: ${err.message}`, 'error');
+    }
+    await sleep(2000);
+  }
+
+  S.stats.total = S.schemes.length;
+  updateStats();
+  renderSchemes();
+}
+
+/* ──────────────────────────────────────────────────────────────────
+   9. EXPORT FUNCTIONS
+────────────────────────────────────────────────────────────────── */
+
+function toExportRows() {
+  return S.schemes.map((s, i) => ({
+    'S.No':                i + 1,
+    'Scheme Name':         s.name        || '',
+    'Category':            s.category    || '',
+    'State / UT':          s.state       || '',
+    'Ministry':            s.ministry    || '',
+    'Department':          s.department  || '',
+    'Description':         s.description || '',
+    'Benefits':            s.benefits    || '',
+    'Eligibility':         s.eligibility || '',
+    'Required Documents':  s.documents   || '',
+    'Application Process': s.applicationProcess || '',
+    'Official Link':       s.officialLink || '',
+    'Last Updated':        s.lastUpdated || '',
+    'Source':              s.source      || '',
+    'Scraped At':          s.scrapedAt   || '',
+  }));
+}
+
+function exportJSON() {
+  if (!S.schemes.length) return log('No schemes to export', 'warn');
+  dlFile(JSON.stringify(S.schemes, null, 2), 'application/json',
+         `gov_schemes_${ymd()}.json`);
+  log(`✅ Exported ${fmtN(S.schemes.length)} schemes as JSON`, 'success');
+}
+
+function exportCSV() {
+  if (!S.schemes.length) return log('No schemes to export', 'warn');
+  const rows = toExportRows();
+  const esc  = v => `"${String(v).replace(/"/g, '""')}"`;
+  const csv  = [
+    Object.keys(rows[0]).join(','),
+    ...rows.map(r => Object.values(r).map(esc).join(',')),
+  ].join('\r\n');
+  dlFile(csv, 'text/csv;charset=utf-8', `gov_schemes_${ymd()}.csv`);
+  log(`✅ Exported ${fmtN(S.schemes.length)} schemes as CSV`, 'success');
+}
+
+function exportExcel() {
+  if (!S.schemes.length) return log('No schemes to export', 'warn');
+  if (!window.XLSX) return log('SheetJS not loaded', 'error');
+
+  const ws = XLSX.utils.json_to_sheet(toExportRows());
+  ws['!cols'] = [
+    {wch:5},{wch:45},{wch:10},{wch:22},{wch:35},{wch:28},
+    {wch:55},{wch:35},{wch:35},{wch:35},{wch:35},{wch:45},
+    {wch:14},{wch:14},{wch:20},
+  ];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Schemes');
+  XLSX.writeFile(wb, `gov_schemes_${ymd()}.xlsx`);
+  log(`✅ Exported ${fmtN(S.schemes.length)} schemes as Excel`, 'success');
+}
+
+function dlFile(content, type, name) {
+  const a   = Object.assign(document.createElement('a'), {
+    href:     URL.createObjectURL(new Blob([content], { type })),
+    download: name,
+  });
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+/* ──────────────────────────────────────────────────────────────────
+   10. UI — STATS, PROGRESS, LOGS
+────────────────────────────────────────────────────────────────── */
+
+function updateStats() {
+  setText('statTotal',  fmtN(S.stats.total));
+  setText('statPages',  fmtN(S.stats.pages));
+  setText('statQueue',  fmtN(S.failed.length));     // re-using queue as "to retry"
+  setText('statFailed', fmtN(S.stats.failed));
+  setText('statSources', `from ${S.stats.sources.size} source${S.stats.sources.size !== 1 ? 's' : ''}`);
+  setText('statCrawls',  `${S.stats.crawlJobs} crawl job${S.stats.crawlJobs !== 1 ? 's' : ''}`);
+  setText('statRetried', `${S.stats.retried} retried`);
+  document.getElementById('btnRetry').disabled = S.failed.length === 0;
+}
+
+function updateProgress(current, total, detail = '') {
+  const pct = total > 0 ? Math.min(100, Math.round((current / total) * 100)) : 0;
+  document.getElementById('progressBar').style.width = pct + '%';
+  setText('progressPct',    pct + '%');
+  if (detail) setText('progressDetail', detail);
+}
+
+function setPhase(label) {
+  setText('phaseLabel', label);
+}
+
+const ICONS = { info: '›', success: '✓', warn: '!', error: '✗' };
+
+function log(msg, type = 'info') {
+  const box  = document.getElementById('logTerminal');
+  const t    = new Date().toTimeString().slice(0, 8);
+  const div  = document.createElement('div');
+  div.className = `log-entry log-${type}`;
+  div.innerHTML = `<span class="log-t">${t}</span>`
+                + `<span class="log-icon">${ICONS[type] || '›'}</span> `
+                + `<span class="log-msg">${esc(msg)}</span>`;
+  box.appendChild(div);
+  box.scrollTop = box.scrollHeight;
+  // Keep log manageable
+  while (box.children.length > 600) box.removeChild(box.firstChild);
+}
+
+function clearLog() {
+  document.getElementById('logTerminal').innerHTML = '';
+}
+
+function setStatus(status) {
+  const dot   = document.getElementById('statusDot');
+  const label = document.getElementById('statusLabel');
+  dot.className   = 'status-dot dot-' + status;
+  label.textContent = { idle:'Idle', running:'Running', paused:'Paused', done:'Done', error:'Error' }[status] || status;
+}
+
+function setButtons(running, paused = false) {
+  document.getElementById('btnStart').disabled = running;
+  document.getElementById('btnPause').disabled = !running;
+  document.getElementById('btnStop').disabled  = !running;
+  const pauseBtn = document.getElementById('btnPause');
+  pauseBtn.innerHTML = paused ? '▶&nbsp; Resume' : '⏸&nbsp; Pause';
+}
+
+/* ──────────────────────────────────────────────────────────────────
+   11. UI — TABLE, FILTERS, PAGINATION
+────────────────────────────────────────────────────────────────── */
+
+function applyFilters() {
+  const q    = (document.getElementById('searchInput').value || '').toLowerCase();
+  const cat  = document.getElementById('filterCategory').value;
+  const st   = document.getElementById('filterState').value;
+
+  S.filtered = S.schemes.filter(s => {
+    const textOk  = !q
+      || (s.name        || '').toLowerCase().includes(q)
+      || (s.description || '').toLowerCase().includes(q)
+      || (s.ministry    || '').toLowerCase().includes(q)
+      || (s.benefits    || '').toLowerCase().includes(q)
+      || (s.state       || '').toLowerCase().includes(q);
+    const catOk   = !cat || s.category === cat;
+    const stateOk = !st  || s.state    === st;
+    return textOk && catOk && stateOk;
+  });
+
+  S.page = 1;
+  renderSchemes();
+}
+
+function renderSchemes() {
+  const pool  = S.filtered.length > 0 ? S.filtered : S.schemes;
+  const total = pool.length;
+  setText('resultCount', `${fmtN(total)} scheme${total !== 1 ? 's' : ''}`);
+
+  // Refresh state dropdown
+  const states = [...new Set(S.schemes.map(s => s.state).filter(Boolean))].sort();
+  const stSel  = document.getElementById('filterState');
+  const curSt  = stSel.value;
+  stSel.innerHTML = '<option value="">All States/UTs</option>'
+    + states.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('');
+  if (states.includes(curSt)) stSel.value = curSt;
+
+  const tbody = document.getElementById('schemesBody');
+
+  if (!total) {
+    tbody.innerHTML = `<tr><td colspan="7"><div class="empty-state">
+      <div class="icon">${S.schemes.length ? '🔍' : '🏛️'}</div>
+      <p>${S.schemes.length ? 'No schemes match your filters.' : 'No schemes collected yet.<br>Start scraping to begin.'}</p>
+    </div></td></tr>`;
+    document.getElementById('pagination').innerHTML = '';
+    return;
+  }
+
+  const start    = (S.page - 1) * S.pageSize;
+  const end      = Math.min(start + S.pageSize, total);
+  const pageData = pool.slice(start, end);
+
+  tbody.innerHTML = pageData.map((s, i) => {
+    const cat = (s.category || 'Central').toLowerCase();
+    const badgeCls = cat === 'central' ? 'badge-central'
+                   : cat === 'state'   ? 'badge-state'
+                   :                     'badge-unknown';
+
+    return `<tr>
+      <td style="color:var(--muted);font-size:11px">${start + i + 1}</td>
+      <td style="min-width:220px">
+        <div style="font-weight:600;line-height:1.4">${esc(s.name || '—')}</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:3px;max-width:240px"
+             class="text-ellipsis" title="${esc(s.description || '')}">
+          ${esc((s.description || '').substring(0, 90))}${(s.description || '').length > 90 ? '…' : ''}
+        </div>
+      </td>
+      <td><span class="badge ${badgeCls}">${esc(s.category || 'Central')}</span></td>
+      <td style="font-size:12px;min-width:110px">${esc(s.state || '—')}</td>
+      <td style="font-size:12px;min-width:160px;max-width:200px" class="text-ellipsis"
+          title="${esc(s.ministry || '')}">
+        ${esc((s.ministry || '—').substring(0, 50))}
+      </td>
+      <td style="font-size:12px;min-width:160px;max-width:200px" class="text-ellipsis"
+          title="${esc(s.benefits || '')}">
+        ${esc((s.benefits || '—').substring(0, 70))}${(s.benefits || '').length > 70 ? '…' : ''}
+      </td>
+      <td>
+        ${s.officialLink
+          ? `<a href="${esc(s.officialLink)}" target="_blank" rel="noopener" class="link-out">🔗 View</a>`
+          : '—'}
+      </td>
+    </tr>`;
+  }).join('');
+
+  renderPagination(total);
+}
+
+function renderPagination(total) {
+  const pg   = document.getElementById('pagination');
+  const last = Math.ceil(total / S.pageSize);
+  if (last <= 1) { pg.innerHTML = ''; return; }
+
+  const cur  = S.page;
+  const mkPg = (p, lbl, disabled = false, active = false) =>
+    `<button class="pg-btn${active ? ' active' : ''}" onclick="goPage(${p})" ${disabled ? 'disabled' : ''}>
+      ${lbl ?? p}
+    </button>`;
+
+  let html = mkPg(1, '«', cur === 1) + mkPg(Math.max(1, cur - 1), '‹', cur === 1);
+
+  for (let p = Math.max(1, cur - 2); p <= Math.min(last, cur + 2); p++) {
+    html += mkPg(p, p, false, p === cur);
+  }
+
+  html += mkPg(Math.min(last, cur + 1), '›', cur === last) + mkPg(last, '»', cur === last);
+  pg.innerHTML = html;
+}
+
+function goPage(p) {
+  S.page = p;
+  const pool = S.filtered.length > 0 ? S.filtered : S.schemes;
+  renderSchemes();
+  window.scrollTo({ top: document.getElementById('schemesBody').getBoundingClientRect().top + window.scrollY - 80, behavior: 'smooth' });
+}
+
+/* ──────────────────────────────────────────────────────────────────
+   12. MAIN ORCHESTRATOR
+────────────────────────────────────────────────────────────────── */
+
+async function startScraping() {
+  const mode   = document.getElementById('crawlMode').value;
+  const needFC = mode !== 'api_only';
+
+  if (needFC && !fcKey()) {
+    alert(
+      'A Firecrawl API key is required for this crawl mode.\n\n'
+      + 'Get a free key at https://app.firecrawl.dev\n\n'
+      + 'Alternatively, select "API Only" mode to use myscheme.gov.in without Firecrawl.'
+    );
+    return;
+  }
+
+  // Persist keys to localStorage
+  localStorage.setItem(LS_FC_KEY, fcKey());
+  localStorage.setItem(LS_OR_KEY, orKey());
+
+  // Reset session state
+  S.running = true;
+  S.paused  = false;
+  S.failed  = [];
+  Object.assign(S.stats, { total: 0, pages: 0, crawlJobs: 0, failed: 0, retried: 0 });
+  S.stats.sources = new Set();
+
+  setStatus('running');
+  setButtons(true);
+  updateStats();
+  updateProgress(0, 1, 'Starting…');
+  setPhase('Initialising');
+  log('═══════════════════════════════════════════', 'info');
+  log('🇮🇳  Indian Gov Schemes Scraper  v' + APP_VER, 'success');
+  log(`    Mode: ${mode} | Max pages/site: ${maxPg()}`, 'info');
+  log(`    AI extraction: ${orKey() ? '✅ OpenRouter+DeepSeek' : '❌ disabled (regex fallback)'}`, 'info');
+  log('═══════════════════════════════════════════', 'info');
+
+  try {
+    /* ── Phase 1: MyScheme.gov.in API ────────────────────────── */
+    if (mode === 'api_first' || mode === 'api_only') {
+      await crawlMySchemeAPI();
+    }
+
+    /* ── Phase 2: Firecrawl seed URLs ────────────────────────── */
+    if ((mode === 'api_first' || mode === 'firecrawl_only') && S.running) {
+      setPhase('Phase 2 — Firecrawl Crawl');
+      log('🕷️  Starting Firecrawl crawl of government portals…', 'info');
+
+      // Merge built-in seeds + custom URLs
+      const customRaw = (document.getElementById('customUrls').value || '')
+        .split('\n').map(u => u.trim()).filter(u => u.startsWith('http'));
+      const customSeeds = customRaw.map(u => ({
+        url: u, label: u, category: 'Unknown', priority: 3,
+      }));
+
+      const allSeeds = [...SEED_URLS, ...customSeeds]
+        .sort((a, b) => a.priority - b.priority);
+
+      setText('statQueue', fmtN(allSeeds.length));
+
+      for (let i = 0; i < allSeeds.length; i++) {
+        if (!S.running) break;
+        while (S.paused && S.running) await sleep(800);
+
+        const seed = allSeeds[i];
+        log(`[${i + 1}/${allSeeds.length}] ${seed.label}`, 'info');
+        setText('statQueue', fmtN(allSeeds.length - i - 1));
+        setPhase(`Phase 2 — ${seed.label} [${i + 1}/${allSeeds.length}]`);
+
+        await crawlSite(seed.url, seed.category);
+        await sleep(1500);    // inter-site pause — be polite
+      }
+    }
+
+    /* ── Phase 3: Retry failed ───────────────────────────────── */
+    if (S.failed.length && S.running && needFC) {
+      setPhase('Phase 3 — Retrying Failed URLs');
+      await retryFailed();
+    }
+
+    /* ── Done ────────────────────────────────────────────────── */
+    S.stats.total = S.schemes.length;
+    S.filtered    = [...S.schemes];
+    renderSchemes();
+    updateStats();
+    updateProgress(1, 1, 'Complete');
+    setPhase('✅ Done');
+    setStatus('done');
+
+    log('═══════════════════════════════════════════', 'success');
+    log(`🎉  Scraping complete!`, 'success');
+    log(`    Total schemes: ${fmtN(S.schemes.length)}`, 'success');
+    log(`    Failed pages:  ${S.stats.failed}`, S.stats.failed ? 'warn' : 'success');
+    log('    Click Export to download your data ⬇️', 'success');
+    log('═══════════════════════════════════════════', 'success');
+
+  } catch (err) {
+    log(`❌ Fatal error: ${err.message}`, 'error');
+    setStatus('error');
+  } finally {
+    S.running = false;
+    setButtons(false);
+    document.getElementById('btnRetry').disabled = S.failed.length === 0;
+  }
+}
+
+function togglePause() {
+  S.paused = !S.paused;
+  setStatus(S.paused ? 'paused' : 'running');
+  setButtons(true, S.paused);
+  log(S.paused ? '⏸ Paused (click Resume to continue)' : '▶ Resumed', 'warn');
+}
+
+function stopScraping() {
+  if (!confirm('Stop the current scraping session? Progress so far will be saved.')) return;
+  S.running = false;
+  S.paused  = false;
+  setStatus('idle');
+  setButtons(false);
+  log('⏹ Scraping stopped by user. Data saved.', 'warn');
+}
+
+async function clearAllData() {
+  if (!confirm('Delete ALL collected schemes from browser storage?\nThis cannot be undone.')) return;
+  await dbClear();
+  S.schemes  = [];
+  S.filtered = [];
+  S.stats    = { total: 0, pages: 0, crawlJobs: 0, failed: 0, retried: 0, sources: new Set() };
+  updateStats();
+  renderSchemes();
+  updateProgress(0, 1, 'Data cleared');
+  setPhase('Ready');
+  log('🗑️ All data cleared', 'warn');
+}
+
+/* ──────────────────────────────────────────────────────────────────
+   13. UTILITY FUNCTIONS
+────────────────────────────────────────────────────────────────── */
+
+/** Generate a stable deduplication key. */
+function mkKey(str) {
+  return str.toLowerCase().replace(/[^a-z0-9]/g, '').substring(0, 100);
+}
+
+/** Flatten an array or return a string value as-is. */
+function flatArr(v) {
+  if (!v) return '';
+  if (Array.isArray(v)) return v.join('; ');
+  return String(v);
+}
+
+/** Strip markdown syntax from text. */
+function strip(t) {
+  if (!t) return '';
+  return t
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')   // links
+    .replace(/\*{1,2}([^*]+)\*{1,2}/g, '$1')   // bold/italic
+    .replace(/#{1,6}\s+/g, '')                  // headings
+    .replace(/\n{2,}/g, '\n')
+    .trim();
+}
+
+/** Pick the best matching section from markdown content. */
+function pickSection(md, keywords) {
+  for (const kw of keywords) {
+    // ## Heading match
+    const hm = md.match(new RegExp(`##\\s*${kw}[^\\n]*\\n([\\s\\S]{10,600}?)(?=\\n##|$)`, 'i'));
+    if (hm) return hm[1].trim();
+    // Bold label match
+    const bm = md.match(new RegExp(`\\*\\*${kw}[^*]*\\*\\*\\s*[:\\-]?\\s*([^\\n]{10,300})`, 'i'));
+    if (bm) return bm[1].trim();
+    // Colon label match
+    const cm = md.match(new RegExp(`${kw}\\s*[:\\-]\\s*([^\\n]{10,300})`, 'i'));
+    if (cm) return cm[1].trim();
+  }
+  return '';
+}
+
+/** Detect Indian state from URL or text. */
+const STATE_MAP = [
+  ['gujarat',          'Gujarat'],
+  ['maharashtra',      'Maharashtra'],
+  ['rajasthan',        'Rajasthan'],
+  ['karnataka',        'Karnataka'],
+  ['tamilnadu|tn\\.gov', 'Tamil Nadu'],
+  ['kerala',           'Kerala'],
+  ['telangana',        'Telangana'],
+  ['andhrapradesh|andhra', 'Andhra Pradesh'],
+  ['uttarpradesh|\\bup\\b', 'Uttar Pradesh'],
+  ['bihar',            'Bihar'],
+  ['odisha',           'Odisha'],
+  ['westbengal|wbxpress', 'West Bengal'],
+  ['punjab',           'Punjab'],
+  ['haryana',          'Haryana'],
+  ['delhi|delhi\\.gov', 'Delhi'],
+  ['assam',            'Assam'],
+  ['goa',              'Goa'],
+  ['madhyapradesh|mponline', 'Madhya Pradesh'],
+  ['jharkhand',        'Jharkhand'],
+  ['chhattisgarh',     'Chhattisgarh'],
+  ['himachal',         'Himachal Pradesh'],
+  ['uttarakhand',      'Uttarakhand'],
+  ['manipur',          'Manipur'],
+  ['meghalaya',        'Meghalaya'],
+  ['nagaland',         'Nagaland'],
+  ['tripura',          'Tripura'],
+  ['sikkim',           'Sikkim'],
+  ['mizoram',          'Mizoram'],
+  ['arunachal',        'Arunachal Pradesh'],
+];
+
+function detectState(text) {
+  const t = (text || '').toLowerCase();
+  for (const [pat, name] of STATE_MAP) {
+    if (new RegExp(pat).test(t)) return name;
+  }
+  return '';
+}
+
+/** HTML escape. */
+function esc(s) {
+  return String(s || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function setText(id, text) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = text;
+}
+
+function fmtN(n) { return Number(n).toLocaleString('en-IN'); }
+function now()   { return new Date().toISOString(); }
+function ymd()   { return new Date().toISOString().slice(0, 10); }
+functio sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+/* ──────────────────────────────────────────────────────────────────
+   14. INITIALISATION
+────────────────────────────────────────────────────────────────── */
+
+async function init() {
+  // Restore saved API keys
+  const savedFC = localStorage.getItem(LS_FC_KEY) || '';
+  const savedOR = localStorage.getItem(LS_OR_KEY) || '';
+  if (savedFC) document.getElementById('firecrawlKey').value = savedFC;
+  if (savedOR) document.getElementById('openrouterKey').value = savedOR;
+
+  // Init IndexedDB
+  try {
+    await initDB();
+    log('✅ Database ready (IndexedDB)', 'success');
+  } catch (err) {
+    log(`⚠️ IndexedDB unavailable: ${err.message}`, 'warn');
+  }
+
+  // Load previously collected schemes
+  try {
+    const loaded = await dbLoadAll();
+    if (loaded.length) {
+      S.schemes  = loaded;
+      S.filtered = [];
+      S.stats.total = loaded.length;
+      S.stats.sources.add('(previously saved)');
+      updateStats();
+      renderSchemes();
+      log(`📦 Loaded ${fmtN(loaded.length)} previously collected schemes from storage`, 'info');
+    }
+  } catch (err) {
+    log(`⚠️ Could not load stored data: ${err.message}`, 'warn');
+  }
+
+  setStatus('idle');
+  setPhase('Ready — configure keys and start');
+  log('🇮🇳 Scraper ready. Configure API keys above and click "Start Scraping".', 'info');
+  log('💡 Tip: "API Only" mode collects 10,000+ schemes with no Firecrawl key.', 'info');
+}
+
+// Kick off
+window.addEventListener('DOMContentLoaded', init);
+</script>
+</body>
+</html>
